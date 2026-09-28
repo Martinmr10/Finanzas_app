@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mis Finanzas</title>
+  <meta name="theme-color" content="#F3F5F6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0A161A" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Mis Finanzas">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ============ LOGIN ============ -->
+  <main id="pantalla-login" class="login" hidden>
+    <div class="login-in">
+      <img src="icons/icon-192.png" alt="" class="login-logo" width="64" height="64">
+      <h1>Mis Finanzas</h1>
+
+      <div id="login-instalar"></div>
+
+      <form id="form-email" class="login-form" novalidate>
+        <p class="lead">Escribe tu correo y te enviaremos un código para entrar.</p>
+        <label class="field">
+          <span>Correo</span>
+          <input id="login-email" type="email" autocomplete="email" inputmode="email" required placeholder="tu@correo.com">
+        </label>
+        <button class="btn btn-primary" type="submit">Enviar código</button>
+      </form>
+
+      <form id="form-codigo" class="login-form" novalidate hidden>
+        <p class="lead">Enviamos un código de 6 dígitos a <strong id="login-destino"></strong>.</p>
+        <label class="field">
+          <span>Código</span>
+          <input id="login-codigo" class="input-codigo num" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+        </label>
+        <button class="btn btn-primary" type="submit">Entrar</button>
+        <button class="btn btn-ghost" type="button" id="login-otro">Usar otro correo</button>
+      </form>
+
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+    </div>
+  </main>
+
+  <!-- ============ APP ============ -->
+  <div id="app" hidden>
+    <div class="wrap">
+      <section id="vista-inicio" class="vista" aria-live="polite"></section>
+      <section id="vista-movimientos" class="vista" hidden></section>
+      <section id="vista-ajustes" class="vista" hidden></section>
+    </div>
+
+    <button id="btn-nuevo" class="fab" type="button" aria-label="Registrar movimiento">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+
+    <nav class="tabs" aria-label="Secciones">
+      <button type="button" data-go="inicio">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20h-5.5v-5.5h-5V20H4z"/></svg>
+        <span>Inicio</span>
+      </button>
+      <button type="button" data-go="movimientos">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+        <span>Movimientos</span>
+      </button>
+      <button type="button" data-go="ajustes">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4"/></svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- ============ HOJA: NUEVO MOVIMIENTO ============ -->
+  <dialog id="sheet-nuevo" class="sheet" aria-labelledby="nuevo-titulo">
+    <form id="form-nuevo" class="sheet-in" novalidate>
+      <div class="sheet-head">
+        <h2 id="nuevo-titulo">Nuevo movimiento</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+
+      <div class="segmented" role="radiogroup" aria-label="Tipo">
+        <label><input type="radio" name="tipo" value="Gasto" checked><span>Gasto</span></label>
+        <label><input type="radio" name="tipo" value="Ingreso"><span>Ingreso</span></label>
+      </div>
+
+      <label class="field monto-field">
+        <span>Monto</span>
+        <input id="nuevo-monto" class="input-monto num" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00">
+      </label>
+
+      <label class="field">
+        <span>Concepto</span>
+        <input id="nuevo-concepto" type="text" maxlength="80" autocomplete="off" placeholder="Ej. Almuerzo">
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span>Cuenta</span>
+          <select id="nuevo-cuenta"></select>
+        </label>
+        <label class="field">
+          <span>Categoría</span>
+          <select id="nuevo-categoria"></select>
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Fecha y hora</span>
+        <input id="nuevo-fecha" type="datetime-local">
+      </label>
+
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Guardar movimiento</button>
+    </form>
+  </dialog>
+
+  <!-- ============ HOJA: DETALLE ============ -->
+  <dialog id="sheet-detalle" class="sheet" aria-labelledby="detalle-titulo">
+    <div class="sheet-in" id="detalle-contenido"></div>
+  </dialog>
+
+  <!-- ============ HOJA: AJUSTAR SALDO ============ -->
+  <dialog id="sheet-saldo" class="sheet" aria-labelledby="saldo-titulo">
+    <form id="form-saldo" class="sheet-in" novalidate>
+      <div class="sheet-head">
+        <h2 id="saldo-titulo">Actualizar saldo</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <p class="lead" id="saldo-pregunta"></p>
+      <label class="field monto-field">
+        <span>Saldo real hoy</span>
+        <input id="saldo-monto" class="input-monto num" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00">
+      </label>
+      <p class="hint">Se registra la diferencia como un ajuste. No cuenta como ingreso ni como gasto.</p>
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Guardar saldo</button>
+    </form>
+  </dialog>
+
+  <!-- ============ HOJA: CONECTAR IPHONE ============ -->
+  <dialog id="sheet-token" class="sheet" aria-labelledby="token-titulo">
+    <div class="sheet-in">
+      <div class="sheet-head">
+        <h2 id="token-titulo">Conectar un iPhone</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+
+      <form id="form-token" novalidate>
+        <p class="lead">Crea un código privado para el atajo de este dispositivo.</p>
+        <label class="field">
+          <span>Nombre del dispositivo</span>
+          <input id="token-nombre" type="text" maxlength="30" value="iPhone">
+        </label>
+        <p class="form-error" role="alert" hidden></p>
+        <button class="btn btn-primary" type="submit">Crear código</button>
+      </form>
+
+      <div id="token-resultado" hidden>
+        <p class="lead">Copia este código y pégalo en la primera acción «Texto» del atajo.</p>
+        <output id="token-codigo" class="token-box"></output>
+        <button class="btn btn-primary" type="button" id="token-copiar">Copiar código</button>
+        <p class="hint">Solo se muestra esta vez. Si lo pierdes, desconecta el dispositivo y crea otro.</p>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
