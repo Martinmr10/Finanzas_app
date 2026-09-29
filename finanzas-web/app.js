@@ -365,6 +365,13 @@
       </section>`;
   }
 
+  function estadoTarjeta(c) {
+    const saldo = Number(c.saldo);
+    if (saldo < 0) return { texto: `Debes ${fmtMoney(-saldo)}`, clase: 'neg' };
+    if (saldo > 0) return { texto: `Saldo a favor ${fmtMoney(saldo)}`, clase: 'ingreso' };
+    return { texto: 'Sin deuda', clase: '' };
+  }
+
   function filaCuentaInicio(c) {
     if (c.tipo === 'credito') {
       const sub = c.cupo == null
@@ -372,7 +379,7 @@
         : `Disponible ${fmtMoney(c.disponible)} de ${fmtMoney(c.cupo)}`;
       return `<li class="row">
         <span class="row-main">${esc(c.nombre)}<span class="row-sub num">${esc(sub)}</span></span>
-        <span class="num ${Number(c.utilizado) > 0 ? 'neg' : ''}">${Number(c.utilizado) > 0 ? 'Debes ' + fmtMoney(c.utilizado) : 'Sin deuda'}</span>
+        <span class="num ${estadoTarjeta(c).clase}">${estadoTarjeta(c).texto}</span>
       </li>`;
     }
     return `<li class="row">
@@ -545,9 +552,10 @@
     const id = esc(c.cuenta_id);
     const nombre = esc(c.nombre);
     if (c.tipo === 'credito') {
+      const estado = estadoTarjeta(c).texto;
       const detalle = c.cupo == null
-        ? `Debes ${fmtMoney(c.utilizado)}. Sin cupo configurado`
-        : `Cupo ${fmtMoney(c.cupo)}, debes ${fmtMoney(c.utilizado)}, disponible ${fmtMoney(c.disponible)}`;
+        ? `${estado}. Sin cupo configurado`
+        : `Cupo ${fmtMoney(c.cupo)}. ${estado}. Disponible ${fmtMoney(c.disponible)}`;
       return `<li class="cuenta-row cuenta-credito">
         <span class="row-main">${nombre} <span class="etiqueta">Crédito</span><span class="row-sub num">${esc(detalle)}</span></span>
         <span class="cuenta-der">
@@ -588,14 +596,28 @@
     if (cuentas.some((c) => String(c.id) === previa)) $('#nuevo-cuenta').value = previa;
 
     const aviso = $('#nuevo-aviso');
-    const tarjeta = state.cuentas.find((c) => c.activa && c.tipo === 'credito');
     aviso.hidden = !esPago;
-    if (esPago) {
-      aviso.textContent = tarjeta
-        ? `Se descuenta de la cuenta elegida y baja la deuda de ${tarjeta.nombre}. No cuenta como gasto.`
-        : 'No tienes una tarjeta de crédito registrada.';
-    }
     $('#nuevo-cuenta-label').textContent = esPago ? 'Pagar desde' : 'Cuenta';
+    state.deudaTarjeta = null;
+    if (esPago) mostrarDeudaTarjeta();
+  }
+
+  async function mostrarDeudaTarjeta() {
+    const aviso = $('#nuevo-aviso');
+    const tarjeta = state.cuentas.find((c) => c.activa && c.tipo === 'credito');
+    if (!tarjeta) { aviso.textContent = 'No tienes una tarjeta de crédito registrada.'; return; }
+    aviso.textContent = `Consultando la deuda de ${tarjeta.nombre}…`;
+    const { data, error } = await sb.from('saldos').select('saldo').eq('cuenta_id', tarjeta.id).maybeSingle();
+    if (categoriaElegida()?.especial !== 'pago_tarjeta') return;
+    if (error || !data) {
+      aviso.textContent = `Se descuenta de la cuenta elegida y baja la deuda de ${tarjeta.nombre}.`;
+      return;
+    }
+    const saldo = Number(data.saldo);
+    state.deudaTarjeta = Math.max(-saldo, 0);
+    aviso.textContent = saldo < 0
+      ? `Deuda actual de ${tarjeta.nombre}: ${fmtMoney(-saldo)}. El pago se descuenta de la cuenta elegida y no cuenta como gasto.`
+      : `${tarjeta.nombre} no tiene deuda registrada${saldo > 0 ? ` (saldo a favor ${fmtMoney(saldo)})` : ''}. Si sí debes, primero actualiza la deuda en Ajustes.`;
   }
 
   function llenarSelects() {
@@ -634,6 +656,13 @@
     if (!cuentaId || !categoriaId) return mostrarError(formNuevo, 'Elige una cuenta y una categoría.');
     const fecha = fechaTxt ? new Date(fechaTxt) : new Date();
     if (isNaN(fecha)) return mostrarError(formNuevo, 'La fecha no es válida.');
+    const pagoTarjeta = categoriaElegida()?.especial === 'pago_tarjeta';
+    if (pagoTarjeta && state.deudaTarjeta != null && monto > state.deudaTarjeta) {
+      const msg = state.deudaTarjeta === 0
+        ? 'La tarjeta no tiene deuda registrada. Si pagas, quedará como saldo a favor. ¿Continuar?'
+        : `Estás pagando ${fmtMoney(monto)} y la deuda registrada es ${fmtMoney(state.deudaTarjeta)}. ¿Continuar?`;
+      if (!confirm(msg)) return;
+    }
 
     const btn = $('button[type="submit"]', formNuevo);
     setBusy(btn, true, 'Guardando…');
