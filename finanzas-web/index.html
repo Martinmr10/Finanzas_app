@@ -151,6 +151,30 @@
     </form>
   </dialog>
 
+  <!-- ============ HOJA: FECHAS DE LA TARJETA ============ -->
+  <dialog id="sheet-fechas" class="sheet" aria-labelledby="fechas-titulo">
+    <form id="form-fechas" class="sheet-in" novalidate>
+      <div class="sheet-head">
+        <h2 id="fechas-titulo">Fechas de la tarjeta</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <label class="field">
+        <span>Fecha de corte</span>
+        <select id="fechas-corte"></select>
+      </label>
+      <p class="hint fechas-hint">Si el mes tiene menos días (por ejemplo, febrero), se toma el último día del mes.</p>
+      <label class="field">
+        <span>Fecha máxima de pago</span>
+        <input id="fechas-pago" type="date">
+      </label>
+      <p class="hint fechas-hint">Viene en tu estado de cuenta y cambia cada mes. Actualízala cuando te llegue el nuevo.</p>
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Guardar fechas</button>
+    </form>
+  </dialog>
+
   <!-- ============ HOJA: CONECTAR IPHONE ============ -->
   <dialog id="sheet-token" class="sheet" aria-labelledby="token-titulo">
     <div class="sheet-in">
