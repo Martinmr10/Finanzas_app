@@ -231,8 +231,8 @@
 
   async function cargarCatalogo() {
     const [c, k] = await Promise.all([
-      sb.from('cuentas').select('id,nombre,tipo,activa,orden').order('orden').order('nombre'),
-      sb.from('categorias').select('id,nombre,tipo,activa,orden').order('orden').order('nombre'),
+      sb.from('cuentas').select('id,nombre,tipo,activa,orden,cupo').order('orden').order('nombre'),
+      sb.from('categorias').select('id,nombre,tipo,activa,orden,especial').order('orden').order('nombre'),
     ]);
     if (c.error || k.error) toast('No se pudieron cargar cuentas y categorías.', true);
     state.cuentas = c.data || [];
@@ -268,15 +268,24 @@
   });
 
   // ===================== Fila de movimiento =====================
+  function estiloMov(m) {
+    const monto = Number(m.monto);
+    if (m.tipo === 'Pago') return { clase: 'pago', icono: '⇄', signo: '' };
+    const clase = m.tipo === 'Gasto' ? 'gasto' : m.tipo === 'Ingreso' ? 'ingreso' : 'ajuste';
+    const signo = m.tipo === 'Gasto' || monto < 0 ? '−' : '+';
+    return { clase, icono: signo, signo };
+  }
+
   function filaMov(m) {
     state.movs.set(String(m.id), m);
     const monto = Number(m.monto);
-    const clase = m.tipo === 'Gasto' ? 'gasto' : m.tipo === 'Ingreso' ? 'ingreso' : 'ajuste';
-    const signo = m.tipo === 'Gasto' || monto < 0 ? '−' : '+';
-    const sub = m.tipo === 'Ajuste' ? `Ajuste en ${esc(m.cuenta)}` : `${esc(m.categoria)}, ${esc(m.cuenta)}`;
+    const { clase, icono, signo } = estiloMov(m);
+    const sub = m.tipo === 'Ajuste' ? `Ajuste en ${esc(m.cuenta)}`
+      : m.tipo === 'Pago' ? `Pago de ${esc(m.cuenta_destino)} desde ${esc(m.cuenta)}`
+      : `${esc(m.categoria)}, ${esc(m.cuenta)}`;
     const d = new Date(m.fecha);
     return `<li><button type="button" class="mov" data-mov="${esc(m.id)}">
-      <span class="mov-sign ${clase}" aria-hidden="true">${signo}</span>
+      <span class="mov-sign ${clase}" aria-hidden="true">${icono}</span>
       <span class="mov-txt"><span class="mov-concepto">${esc(m.concepto)}</span><span class="mov-sub">${sub}</span></span>
       <span class="mov-der"><span class="mov-monto num ${clase}">${signo}${fmtMoney(monto)}</span><span class="mov-hora">${esc(fCorta.format(d))}, ${esc(fHora.format(d))}</span></span>
     </button></li>`;
@@ -340,10 +349,7 @@
           <span class="total num ${patrimonio < 0 ? 'neg' : ''}">${fmtSigned(patrimonio)}</span>
         </div>
         <ul class="list">
-          ${activas.map((c) => `<li class="row">
-              <span class="row-main">${esc(c.nombre)}</span>
-              <span class="num ${Number(c.saldo) < 0 ? 'neg' : ''}">${fmtSigned(c.saldo)}</span>
-            </li>`).join('')}
+          ${activas.map(filaCuentaInicio).join('')}
         </ul>
         ${patrimonio < 0 ? '<p class="hint">¿Saldo negativo? En Ajustes puedes indicar cuánto tienes hoy en cada cuenta.</p>' : ''}
       </section>
@@ -357,6 +363,22 @@
           ? `<ul class="list">${ultimos.map(filaMov).join('')}</ul>`
           : '<p class="vacio">Aún no hay movimientos. Registra el primero con el botón + o con el atajo del iPhone.</p>'}
       </section>`;
+  }
+
+  function filaCuentaInicio(c) {
+    if (c.tipo === 'credito') {
+      const sub = c.cupo == null
+        ? 'Configura el cupo en Ajustes'
+        : `Disponible ${fmtMoney(c.disponible)} de ${fmtMoney(c.cupo)}`;
+      return `<li class="row">
+        <span class="row-main">${esc(c.nombre)}<span class="row-sub num">${esc(sub)}</span></span>
+        <span class="num ${Number(c.utilizado) > 0 ? 'neg' : ''}">${Number(c.utilizado) > 0 ? 'Debes ' + fmtMoney(c.utilizado) : 'Sin deuda'}</span>
+      </li>`;
+    }
+    return `<li class="row">
+      <span class="row-main">${esc(c.nombre)}</span>
+      <span class="num ${Number(c.saldo) < 0 ? 'neg' : ''}">${fmtSigned(c.saldo)}</span>
+    </li>`;
   }
 
   // ===================== Movimientos =====================
@@ -381,6 +403,7 @@
         <button type="button" class="chip" data-filtro="todos" aria-pressed="true">Todos</button>
         <button type="button" class="chip" data-filtro="Gasto" aria-pressed="false">Gastos</button>
         <button type="button" class="chip" data-filtro="Ingreso" aria-pressed="false">Ingresos</button>
+        <button type="button" class="chip" data-filtro="Pago" aria-pressed="false">Pagos de tarjeta</button>
         <button type="button" class="chip" data-filtro="Ajuste" aria-pressed="false">Ajustes</button>
       </div>
       <div id="mov-resumen" class="resumen-mov"></div>
@@ -419,7 +442,7 @@
       .limit(500);
     if (state.filtro !== 'todos') q = q.eq('tipo', state.filtro);
     const termino = state.q.replace(/[%,()"*\\]/g, ' ').trim();
-    if (termino) q = q.or(`concepto.ilike."%${termino}%",categoria.ilike."%${termino}%",cuenta.ilike."%${termino}%"`);
+    if (termino) q = q.or(`concepto.ilike."%${termino}%",categoria.ilike."%${termino}%",cuenta.ilike."%${termino}%",cuenta_destino.ilike."%${termino}%"`);
 
     const { data, error } = await q;
     if (mi !== seqMov) return;
@@ -427,7 +450,7 @@
     if (error) { lista.innerHTML = cajaError(error.message); $('#mov-resumen').innerHTML = ''; return; }
 
     const movs = data || [];
-    const normales = movs.filter((m) => m.tipo !== 'Ajuste');
+    const normales = movs.filter((m) => m.tipo === 'Ingreso' || m.tipo === 'Gasto');
     const ing = normales.filter((m) => m.tipo === 'Ingreso').reduce((a, m) => a + Number(m.monto), 0);
     const gas = normales.filter((m) => m.tipo === 'Gasto').reduce((a, m) => a + Number(m.monto), 0);
 
@@ -449,7 +472,7 @@
     });
 
     lista.innerHTML = [...porDia.entries()].map(([dia, items]) => {
-      const neto = items.filter((m) => m.tipo !== 'Ajuste')
+      const neto = items.filter((m) => m.tipo === 'Ingreso' || m.tipo === 'Gasto')
         .reduce((a, m) => a + (m.tipo === 'Gasto' ? -Number(m.monto) : Number(m.monto)), 0);
       const etiqueta = cap(fDia.format(new Date(`${dia}T12:00:00-05:00`)));
       return `<section class="dia">
@@ -482,12 +505,9 @@
       <section class="block">
         <div class="block-head"><h2>Saldo de tus cuentas</h2></div>
         <ul class="list">
-          ${cuentas.map((c) => `<li class="cuenta-row">
-            <span class="row-main">${esc(c.nombre)}<span class="row-sub num ${Number(c.saldo) < 0 ? 'neg' : ''}">${fmtSigned(c.saldo)}</span></span>
-            <button type="button" class="btn-small" data-ajustar="${esc(c.cuenta_id)}" data-nombre="${esc(c.nombre)}">Actualizar</button>
-          </li>`).join('')}
+          ${cuentas.map(filaCuentaAjustes).join('')}
         </ul>
-        <p class="hint">Si el saldo no coincide con lo que tienes, indica cuánto hay hoy y se registra la diferencia.</p>
+        <p class="hint">Si un saldo no coincide con la realidad, indica cuánto hay hoy (o cuánto debes en la tarjeta) y se registra la diferencia.</p>
       </section>
 
       <section class="block">
@@ -510,7 +530,8 @@
       await sb.auth.signOut();
       state.movs.clear();
     });
-    $$('[data-ajustar]', v).forEach((b) => b.addEventListener('click', () => abrirSaldo(b.dataset.ajustar, b.dataset.nombre)));
+    $$('[data-ajustar]', v).forEach((b) => b.addEventListener('click', () =>
+      abrirSaldo(b.dataset.ajustar, b.dataset.nombre, b.dataset.modo, b.dataset.actual)));
     $$('[data-desconectar]', v).forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`¿Desconectar «${b.dataset.nombre}»? Su atajo dejará de funcionar.`)) return;
       const { error } = await sb.from('tokens_atajo').delete().eq('id', b.dataset.desconectar);
@@ -518,6 +539,27 @@
       toast('Dispositivo desconectado');
       renderAjustes();
     }));
+  }
+
+  function filaCuentaAjustes(c) {
+    const id = esc(c.cuenta_id);
+    const nombre = esc(c.nombre);
+    if (c.tipo === 'credito') {
+      const detalle = c.cupo == null
+        ? `Debes ${fmtMoney(c.utilizado)}. Sin cupo configurado`
+        : `Cupo ${fmtMoney(c.cupo)}, debes ${fmtMoney(c.utilizado)}, disponible ${fmtMoney(c.disponible)}`;
+      return `<li class="cuenta-row cuenta-credito">
+        <span class="row-main">${nombre} <span class="etiqueta">Crédito</span><span class="row-sub num">${esc(detalle)}</span></span>
+        <span class="cuenta-der">
+          <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="cupo" data-actual="${esc(c.cupo ?? '')}">Cupo</button>
+          <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="deuda">Deuda</button>
+        </span>
+      </li>`;
+    }
+    return `<li class="cuenta-row">
+      <span class="row-main">${nombre}<span class="row-sub num ${Number(c.saldo) < 0 ? 'neg' : ''}">${fmtSigned(c.saldo)}</span></span>
+      <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="saldo">Actualizar</button>
+    </li>`;
   }
 
   // ===================== Hojas: comportamiento común =====================
@@ -534,12 +576,33 @@
     return $('input[name="tipo"]:checked', formNuevo).value;
   }
 
-  function llenarSelects() {
-    const cuentas = state.cuentas.filter((c) => c.activa);
+  function categoriaElegida() {
+    return state.categorias.find((c) => String(c.id) === $('#nuevo-categoria').value);
+  }
+
+  function llenarCuentas() {
+    const esPago = categoriaElegida()?.especial === 'pago_tarjeta';
+    const previa = $('#nuevo-cuenta').value;
+    const cuentas = state.cuentas.filter((c) => c.activa && !(esPago && c.tipo === 'credito'));
     $('#nuevo-cuenta').innerHTML = cuentas.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+    if (cuentas.some((c) => String(c.id) === previa)) $('#nuevo-cuenta').value = previa;
+
+    const aviso = $('#nuevo-aviso');
+    const tarjeta = state.cuentas.find((c) => c.activa && c.tipo === 'credito');
+    aviso.hidden = !esPago;
+    if (esPago) {
+      aviso.textContent = tarjeta
+        ? `Se descuenta de la cuenta elegida y baja la deuda de ${tarjeta.nombre}. No cuenta como gasto.`
+        : 'No tienes una tarjeta de crédito registrada.';
+    }
+    $('#nuevo-cuenta-label').textContent = esPago ? 'Pagar desde' : 'Cuenta';
+  }
+
+  function llenarSelects() {
     const tipo = tipoNuevo();
     const cats = state.categorias.filter((c) => c.activa && c.tipo === tipo);
     $('#nuevo-categoria').innerHTML = cats.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+    llenarCuentas();
   }
 
   function abrirNuevo(tipo = 'Gasto') {
@@ -554,6 +617,7 @@
 
   $('#btn-nuevo').addEventListener('click', () => abrirNuevo('Gasto'));
   $$('input[name="tipo"]', formNuevo).forEach((r) => r.addEventListener('change', llenarSelects));
+  $('#nuevo-categoria').addEventListener('change', llenarCuentas);
 
   formNuevo.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -586,7 +650,8 @@
     if (error) return mostrarError(formNuevo, 'No se pudo guardar: ' + error.message);
 
     $('#sheet-nuevo').close();
-    toast(`${tipo} de ${fmtMoney(monto)} registrado`);
+    const esPago = categoriaElegida()?.especial === 'pago_tarjeta';
+    toast(esPago ? `Pago de tarjeta de ${fmtMoney(monto)} registrado` : `${tipo} de ${fmtMoney(monto)} registrado`);
     refrescar();
   });
 
@@ -595,8 +660,8 @@
     const m = state.movs.get(String(id));
     if (!m) return;
     const monto = Number(m.monto);
-    const clase = m.tipo === 'Gasto' ? 'gasto' : m.tipo === 'Ingreso' ? 'ingreso' : 'ajuste';
-    const signo = m.tipo === 'Gasto' || monto < 0 ? '−' : '+';
+    const { clase, signo } = estiloMov(m);
+    const esPago = m.tipo === 'Pago';
     const origen = { app: 'Desde la app', atajo: 'Desde el atajo', ajuste: 'Ajuste de saldo' }[m.origen] || m.origen;
 
     $('#detalle-contenido').innerHTML = `
@@ -608,9 +673,10 @@
       </div>
       <p class="detalle-monto num ${clase}">${signo}${fmtMoney(monto)}</p>
       <dl class="detalle-lista">
-        <div><dt>Tipo</dt><dd>${esc(m.tipo)}</dd></div>
-        ${m.categoria ? `<div><dt>Categoría</dt><dd>${esc(m.categoria)}</dd></div>` : ''}
-        <div><dt>Cuenta</dt><dd>${esc(m.cuenta)}</dd></div>
+        <div><dt>Tipo</dt><dd>${esPago ? 'Pago de tarjeta' : esc(m.tipo)}</dd></div>
+        ${m.categoria && !esPago ? `<div><dt>Categoría</dt><dd>${esc(m.categoria)}</dd></div>` : ''}
+        <div><dt>${esPago ? 'Desde' : 'Cuenta'}</dt><dd>${esc(m.cuenta)}</dd></div>
+        ${esPago ? `<div><dt>Tarjeta pagada</dt><dd>${esc(m.cuenta_destino)}</dd></div>` : ''}
         <div><dt>Fecha</dt><dd>${esc(fCompleta.format(new Date(m.fecha)))}</dd></div>
         <div><dt>Registrado</dt><dd>${esc(origen)}</dd></div>
       </dl>
@@ -630,28 +696,74 @@
   // ===================== Hoja: ajustar saldo =====================
   const formSaldo = $('#form-saldo');
   let saldoCuentaId = null;
+  let saldoModo = 'saldo';
 
-  function abrirSaldo(cuentaId, nombre) {
+  const TEXTOS_SALDO = {
+    saldo: {
+      titulo: 'Actualizar saldo',
+      pregunta: (n) => `¿Cuánto hay ahora en ${n}?`,
+      etiqueta: 'Saldo real hoy',
+      ayuda: 'Se registra la diferencia como un ajuste. No cuenta como ingreso ni como gasto.',
+    },
+    deuda: {
+      titulo: 'Actualizar deuda',
+      pregunta: (n) => `¿Cuánto debes hoy en ${n}?`,
+      etiqueta: 'Deuda actual',
+      ayuda: 'Revisa tu estado de cuenta o la app del banco. Se registra la diferencia como un ajuste.',
+    },
+    cupo: {
+      titulo: 'Cupo de la tarjeta',
+      pregunta: (n) => `¿Cuál es el cupo total de ${n}?`,
+      etiqueta: 'Cupo total',
+      ayuda: 'Es el límite que te da el banco. El disponible se calcula restando lo que debes.',
+    },
+  };
+
+  function abrirSaldo(cuentaId, nombre, modo = 'saldo', actual = '') {
     saldoCuentaId = Number(cuentaId);
+    saldoModo = TEXTOS_SALDO[modo] ? modo : 'saldo';
+    const t = TEXTOS_SALDO[saldoModo];
     formSaldo.reset();
     mostrarError(formSaldo, '');
-    $('#saldo-pregunta').textContent = `¿Cuánto hay ahora en ${nombre}?`;
+    $('#saldo-titulo').textContent = t.titulo;
+    $('#saldo-pregunta').textContent = t.pregunta(nombre);
+    $('#saldo-etiqueta').textContent = t.etiqueta;
+    $('#saldo-ayuda').textContent = t.ayuda;
+    $('#saldo-monto').value = saldoModo === 'cupo' && actual ? String(actual).replace('.', ',') : '';
     $('#sheet-saldo').showModal();
     setTimeout(() => $('#saldo-monto').focus(), 50);
   }
 
   formSaldo.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const real = parseMonto($('#saldo-monto').value);
-    if (isNaN(real)) return mostrarError(formSaldo, 'Escribe una cantidad, por ejemplo 150 o 42,30.');
+    const valor = parseMonto($('#saldo-monto').value);
+    if (isNaN(valor)) return mostrarError(formSaldo, 'Escribe una cantidad, por ejemplo 150 o 42,30.');
+    if ((saldoModo === 'cupo' || saldoModo === 'deuda') && valor < 0)
+      return mostrarError(formSaldo, 'Escribe una cantidad positiva.');
     const btn = $('button[type="submit"]', formSaldo);
     setBusy(btn, true, 'Guardando…');
+
+    if (saldoModo === 'cupo') {
+      const { error } = await sb.from('cuentas').update({ cupo: valor }).eq('id', saldoCuentaId);
+      setBusy(btn, false);
+      if (error) return mostrarError(formSaldo, 'No se pudo guardar: ' + error.message);
+      $('#sheet-saldo').close();
+      toast(`Cupo actualizado a ${fmtMoney(valor)}`);
+      await cargarCatalogo();
+      refrescar();
+      return;
+    }
+
+    // En una tarjeta, la deuda es un saldo negativo
+    const real = saldoModo === 'deuda' ? -valor : valor;
     const { data, error } = await sb.rpc('ajustar_saldo', { p_cuenta_id: saldoCuentaId, p_monto_real: real });
     setBusy(btn, false);
     if (error) return mostrarError(formSaldo, 'No se pudo guardar: ' + error.message);
     $('#sheet-saldo').close();
     const dif = Number(data);
-    toast(dif === 0 ? 'El saldo ya coincidía' : `Saldo actualizado (${dif > 0 ? '+' : '−'}${fmtMoney(dif)})`);
+    toast(dif === 0 ? 'Ya coincidía, no hubo cambios'
+      : saldoModo === 'deuda' ? `Deuda actualizada a ${fmtMoney(valor)}`
+      : `Saldo actualizado (${dif > 0 ? '+' : '−'}${fmtMoney(dif)})`);
     refrescar();
   });
 
