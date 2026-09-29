@@ -106,14 +106,15 @@
 
       <div class="field-row">
         <label class="field">
-          <span>Cuenta</span>
-          <select id="nuevo-cuenta"></select>
-        </label>
-        <label class="field">
           <span>Categoría</span>
           <select id="nuevo-categoria"></select>
         </label>
+        <label class="field">
+          <span id="nuevo-cuenta-label">Cuenta</span>
+          <select id="nuevo-cuenta"></select>
+        </label>
       </div>
+      <p class="aviso" id="nuevo-aviso" hidden></p>
 
       <label class="field">
         <span>Fecha y hora</span>
@@ -141,10 +142,10 @@
       </div>
       <p class="lead" id="saldo-pregunta"></p>
       <label class="field monto-field">
-        <span>Saldo real hoy</span>
+        <span id="saldo-etiqueta">Saldo real hoy</span>
         <input id="saldo-monto" class="input-monto num" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00">
       </label>
-      <p class="hint">Se registra la diferencia como un ajuste. No cuenta como ingreso ni como gasto.</p>
+      <p class="hint" id="saldo-ayuda">Se registra la diferencia como un ajuste. No cuenta como ingreso ni como gasto.</p>
       <p class="form-error" role="alert" hidden></p>
       <button class="btn btn-primary" type="submit">Guardar saldo</button>
     </form>
