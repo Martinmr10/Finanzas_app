@@ -231,7 +231,7 @@
 
   async function cargarCatalogo() {
     const [c, k] = await Promise.all([
-      sb.from('cuentas').select('id,nombre,tipo,activa,orden,cupo').order('orden').order('nombre'),
+      sb.from('cuentas').select('id,nombre,tipo,activa,orden,cupo,dia_corte,fecha_pago').order('orden').order('nombre'),
       sb.from('categorias').select('id,nombre,tipo,activa,orden,especial').order('orden').order('nombre'),
     ]);
     if (c.error || k.error) toast('No se pudieron cargar cuentas y categorías.', true);
@@ -322,8 +322,17 @@
     const activas = saldos.filter((x) => x.activa);
     const ultimos = u.data || [];
 
+    const alertas = activas.filter((c) => c.tipo === 'credito').map((c) => {
+      const f = infoFechas(c.cuenta_id, Number(c.utilizado));
+      if (!f || f.dias == null || Number(c.utilizado) <= 0) return '';
+      if (f.dias > 3 && f.dias >= 0) return '';
+      const cuando = f.dias < 0 ? `venció el ${f.fecha}` : f.dias === 0 ? 'vence hoy' : f.dias === 1 ? 'vence mañana' : `vence el ${f.fecha}`;
+      return `<div class="alerta" role="alert"><strong>Paga ${esc(c.nombre)}</strong>: ${esc(cuando)}. Debes ${fmtMoney(c.utilizado)}.</div>`;
+    }).join('');
+
     v.innerHTML = `
       ${htmlGuiaInstalar()}
+      ${alertas}
       <header class="top">
         <p class="top-sub">${esc(saludo())}</p>
         <h1>${esc(nombreMes(mesHoy))}</h1>
@@ -365,6 +374,42 @@
       </section>`;
   }
 
+  // ---------- Fechas de la tarjeta ----------
+  const fechaDe = ({ y, m, d }) => new Date(`${y}-${pad(m)}-${pad(d)}T12:00:00-05:00`);
+  const ultimoDia = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const diasEntre = (a, b) => Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / 86400000);
+
+  function proximoCorte(dia) {
+    const h = hoy();
+    const esteMes = Math.min(dia, ultimoDia(h.y, h.m));
+    if (h.d <= esteMes) return { y: h.y, m: h.m, d: esteMes };
+    const sig = mesSiguiente(h);
+    return { y: sig.y, m: sig.m, d: Math.min(dia, ultimoDia(sig.y, sig.m)) };
+  }
+
+  function infoFechas(cuentaId, deuda) {
+    const cfgCuenta = state.cuentas.find((x) => x.id === Number(cuentaId));
+    if (!cfgCuenta) return null;
+    const partes = [];
+    let urgente = false;
+    let pagoTxt = null;
+    if (cfgCuenta.dia_corte) partes.push(`Corte ${fCorta.format(fechaDe(proximoCorte(cfgCuenta.dia_corte)))}`);
+    if (cfgCuenta.fecha_pago) {
+      const [y, m, d] = cfgCuenta.fecha_pago.split('-').map(Number);
+      const fp = { y, m, d };
+      const dias = diasEntre(hoy(), fp);
+      const fecha = fCorta.format(fechaDe(fp));
+      if (dias < 0) pagoTxt = `La fecha de pago (${fecha}) ya pasó: actualízala`;
+      else if (dias === 0) pagoTxt = `Hoy es el último día de pago`;
+      else if (dias === 1) pagoTxt = `Pagar hasta mañana, ${fecha}`;
+      else pagoTxt = `Pagar hasta el ${fecha} (en ${dias} días)`;
+      urgente = deuda > 0 && dias <= 3;
+      partes.push(pagoTxt);
+      return { texto: partes.join('. '), urgente, dias, fecha };
+    }
+    return partes.length ? { texto: partes.join('. '), urgente: false, dias: null } : null;
+  }
+
   function estadoTarjeta(c) {
     const saldo = Number(c.saldo);
     if (saldo < 0) return { texto: `Debes ${fmtMoney(-saldo)}`, clase: 'neg' };
@@ -377,8 +422,9 @@
       const sub = c.cupo == null
         ? 'Configura el cupo en Ajustes'
         : `Disponible ${fmtMoney(c.disponible)} de ${fmtMoney(c.cupo)}`;
+      const f = infoFechas(c.cuenta_id, Number(c.utilizado));
       return `<li class="row">
-        <span class="row-main">${esc(c.nombre)}<span class="row-sub num">${esc(sub)}</span></span>
+        <span class="row-main">${esc(c.nombre)}<span class="row-sub num">${esc(sub)}</span>${f ? `<span class="row-sub ${f.urgente ? 'neg' : ''}">${esc(f.texto)}</span>` : ''}</span>
         <span class="num ${estadoTarjeta(c).clase}">${estadoTarjeta(c).texto}</span>
       </li>`;
     }
@@ -537,6 +583,7 @@
       await sb.auth.signOut();
       state.movs.clear();
     });
+    $$('[data-fechas]', v).forEach((b) => b.addEventListener('click', () => abrirFechas(b.dataset.fechas, b.dataset.nombre)));
     $$('[data-ajustar]', v).forEach((b) => b.addEventListener('click', () =>
       abrirSaldo(b.dataset.ajustar, b.dataset.nombre, b.dataset.modo, b.dataset.actual)));
     $$('[data-desconectar]', v).forEach((b) => b.addEventListener('click', async () => {
@@ -556,11 +603,16 @@
       const detalle = c.cupo == null
         ? `${estado}. Sin cupo configurado`
         : `Cupo ${fmtMoney(c.cupo)}. ${estado}. Disponible ${fmtMoney(c.disponible)}`;
+      const f = infoFechas(c.cuenta_id, Number(c.utilizado));
       return `<li class="cuenta-row cuenta-credito">
-        <span class="row-main">${nombre} <span class="etiqueta">Crédito</span><span class="row-sub num">${esc(detalle)}</span></span>
-        <span class="cuenta-der">
+        <span class="row-main">${nombre} <span class="etiqueta">Crédito</span>
+          <span class="row-sub num">${esc(detalle)}</span>
+          <span class="row-sub ${f?.urgente ? 'neg' : ''}">${esc(f ? f.texto : 'Sin fechas de corte y pago')}</span>
+        </span>
+        <span class="botones">
           <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="cupo" data-actual="${esc(c.cupo ?? '')}">Cupo</button>
           <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="deuda">Deuda</button>
+          <button type="button" class="btn-small" data-fechas="${id}" data-nombre="${nombre}">Fechas</button>
         </span>
       </li>`;
     }
@@ -793,6 +845,38 @@
     toast(dif === 0 ? 'Ya coincidía, no hubo cambios'
       : saldoModo === 'deuda' ? `Deuda actualizada a ${fmtMoney(valor)}`
       : `Saldo actualizado (${dif > 0 ? '+' : '−'}${fmtMoney(dif)})`);
+    refrescar();
+  });
+
+  // ===================== Hoja: fechas de la tarjeta =====================
+  const formFechas = $('#form-fechas');
+  let fechasCuentaId = null;
+  const selCorte = $('#fechas-corte');
+  selCorte.innerHTML = '<option value="">Sin configurar</option>' +
+    Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">El ${i + 1} de cada mes</option>`).join('');
+
+  function abrirFechas(cuentaId, nombre) {
+    fechasCuentaId = Number(cuentaId);
+    const c = state.cuentas.find((x) => x.id === fechasCuentaId) || {};
+    mostrarError(formFechas, '');
+    $('#fechas-titulo').textContent = `Fechas de ${nombre}`;
+    selCorte.value = c.dia_corte ? String(c.dia_corte) : '';
+    $('#fechas-pago').value = c.fecha_pago || '';
+    $('#sheet-fechas').showModal();
+  }
+
+  formFechas.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const diaCorte = selCorte.value ? Number(selCorte.value) : null;
+    const fechaPago = $('#fechas-pago').value || null;
+    const btn = $('button[type="submit"]', formFechas);
+    setBusy(btn, true, 'Guardando…');
+    const { error } = await sb.from('cuentas').update({ dia_corte: diaCorte, fecha_pago: fechaPago }).eq('id', fechasCuentaId);
+    setBusy(btn, false);
+    if (error) return mostrarError(formFechas, 'No se pudo guardar: ' + error.message);
+    $('#sheet-fechas').close();
+    toast('Fechas guardadas');
+    await cargarCatalogo();
     refrescar();
   });
 
