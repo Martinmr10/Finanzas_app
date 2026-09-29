@@ -192,6 +192,7 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .gasto { color: var(--gasto); }
 .ingreso { color: var(--ingreso); }
 .ajuste { color: var(--amber); }
+.pago { color: var(--accent); }
 
 /* ===================== Movimientos ===================== */
 .mes-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 14px; }
@@ -221,6 +222,16 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .cuenta-der { display: flex; align-items: center; gap: 10px; }
 .cuenta-saldo { font-weight: 800; }
 .perfil { margin: 0 0 22px; color: var(--muted); }
+.cuenta-credito { align-items: flex-start; }
+.cuenta-credito .cuenta-der { flex-shrink: 0; gap: 6px; }
+.etiqueta {
+  display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 99px;
+  background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 700; vertical-align: 2px;
+}
+.aviso {
+  margin: -4px 0 14px; padding: 10px 12px; border-radius: var(--r-sm);
+  background: var(--surface-2); color: var(--ink); font-size: 14px;
+}
 
 /* ===================== Navegación ===================== */
 .tabs {
