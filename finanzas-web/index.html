@@ -186,17 +186,17 @@
         </button>
       </div>
       <label class="field">
-        <span>Fecha de corte</span>
+        <span>Día de corte</span>
         <select id="fechas-corte"></select>
       </label>
-      <p class="hint fechas-hint">Si el mes tiene menos días (por ejemplo, febrero), se toma el último día del mes.</p>
+      <p class="hint fechas-hint">Cierra el periodo. Lo que consumas hasta ese día (incluido) forma el estado de cuenta.</p>
       <label class="field">
-        <span>Fecha máxima de pago</span>
-        <input id="fechas-pago" type="date">
+        <span>Día de pago</span>
+        <select id="fechas-dia-pago"></select>
       </label>
-      <p class="hint fechas-hint">Viene en tu estado de cuenta y cambia cada mes. Actualízala cuando te llegue el nuevo.</p>
+      <p class="hint fechas-hint">Hasta ese día pagas el estado de cuenta. Lo que quede sin pagar se suma al siguiente. Si el mes tiene menos días, se toma el último.</p>
       <p class="form-error" role="alert" hidden></p>
-      <button class="btn btn-primary" type="submit">Guardar fechas</button>
+      <button class="btn btn-primary" type="submit">Guardar</button>
     </form>
   </dialog>
 
