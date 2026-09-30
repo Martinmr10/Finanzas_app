@@ -421,3 +421,6 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, .45); }
   dialog.sheet { inset: 0; margin: auto; max-height: 86vh; border-radius: 22px; }
   .toast { bottom: 32px; left: calc(50% + 128px); }
 }
+
+.resumen-tarjeta { margin: -2px 2px 10px; font-weight: 700; font-size: 15px; }
+.estado-corte { font-weight: 800; text-align: right; }
