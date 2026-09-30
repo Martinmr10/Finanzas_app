@@ -107,6 +107,8 @@
     filtro: 'todos',
     q: '',
     movs: new Map(),
+    anMes: null,
+    anCuenta: '',
   };
 
   // ===================== Guía de instalación (iPhone) =====================
@@ -218,6 +220,10 @@
     $('#pantalla-login').hidden = true;
     $('#app').hidden = false;
     state.mes = hoy();
+    const email = state.user?.email || '';
+    $('#side-avatar').textContent = (email[0] || '?').toUpperCase();
+    $('#side-nombre').textContent = cap(email.split('@')[0].replace(/[._-]+/g, ' '));
+    $('#side-email').textContent = email;
     await cargarCatalogo();
     irA('inicio');
 
@@ -242,7 +248,7 @@
   function irA(vista) {
     state.view = vista;
     $$('.vista').forEach((v) => { v.hidden = v.id !== `vista-${vista}`; });
-    $$('.tabs [data-go]').forEach((b) => {
+    $$('.tabs [data-go], .side-nav [data-go]').forEach((b) => {
       if (b.dataset.go === vista) b.setAttribute('aria-current', 'page');
       else b.removeAttribute('aria-current');
     });
@@ -254,6 +260,7 @@
     if (!state.user) return;
     if (state.view === 'inicio') renderInicio();
     else if (state.view === 'movimientos') renderMovimientos();
+    else if (state.view === 'analisis') renderAnalisis();
     else if (state.view === 'ajustes') renderAjustes();
   }
 
@@ -338,7 +345,8 @@
         <h1>${esc(nombreMes(mesHoy))}</h1>
       </header>
 
-      <section class="hero" aria-label="Balance del mes">
+      <div class="inicio-grid">
+      <section class="hero a-hero" aria-label="Balance del mes">
         <p class="hero-label">Balance del mes</p>
         <p class="hero-num num">${fmtSigned(res.balance)}</p>
         <div class="split" aria-hidden="true">
@@ -352,7 +360,7 @@
         </div>
       </section>
 
-      <section class="block">
+      <section class="block a-cuentas">
         <div class="block-head">
           <h2>Tus cuentas</h2>
           <span class="total num ${patrimonio < 0 ? 'neg' : ''}">${fmtSigned(patrimonio)}</span>
@@ -363,7 +371,7 @@
         ${patrimonio < 0 ? '<p class="hint">¿Saldo negativo? En Ajustes puedes indicar cuánto tienes hoy en cada cuenta.</p>' : ''}
       </section>
 
-      <section class="block">
+      <section class="block a-movs">
         <div class="block-head">
           <h2>Últimos movimientos</h2>
           ${ultimos.length ? '<button type="button" class="link" data-go="movimientos">Ver todos</button>' : ''}
@@ -371,7 +379,8 @@
         ${ultimos.length
           ? `<ul class="list">${ultimos.map(filaMov).join('')}</ul>`
           : '<p class="vacio">Aún no hay movimientos. Registra el primero con el botón + o con el atajo del iPhone.</p>'}
-      </section>`;
+      </section>
+      </div>`;
   }
 
   // ---------- Fechas de la tarjeta ----------
@@ -535,6 +544,158 @@
     }).join('');
   }
 
+  // ===================== Análisis =====================
+  let seqAn = 0;
+
+  function opcionesMeses() {
+    const lista = [];
+    let m = hoy();
+    for (let i = 0; i < 24; i++) { lista.push(m); m = mesAnterior(m); }
+    return lista;
+  }
+
+  function montarAnalisis(v) {
+    v.innerHTML = `
+      <header class="top">
+        <p class="top-sub">Tu dinero, con contexto</p>
+        <h1>Análisis</h1>
+      </header>
+      <div class="filtros">
+        <label class="field"><span>Periodo</span><select id="an-mes"></select></label>
+        <label class="field"><span>Cuenta</span><select id="an-cuenta"></select></label>
+      </div>
+      <div id="an-contenido"></div>`;
+    $('#an-mes', v).innerHTML = opcionesMeses().map((m, i) =>
+      `<option value="${mesKey(m)}">${i === 0 ? `Mes actual (${nombreMes(m)})` : nombreMes(m)}</option>`).join('');
+    $('#an-mes', v).addEventListener('change', (e) => { state.anMes = e.target.value; renderAnalisis(); });
+    $('#an-cuenta', v).addEventListener('change', (e) => { state.anCuenta = e.target.value; renderAnalisis(); });
+    v.addEventListener('click', (e) => {
+      const b = e.target.closest('.cat-btn');
+      if (b) toggleCategoria(b);
+    });
+    v.dataset.montada = '1';
+  }
+
+  function mesDeKey(key) {
+    const [y, m] = key.split('-').map(Number);
+    return { y, m };
+  }
+
+  async function renderAnalisis() {
+    const v = $('#vista-analisis');
+    if (!v.dataset.montada) montarAnalisis(v);
+    const mi = ++seqAn;
+
+    const selCuenta = $('#an-cuenta');
+    selCuenta.innerHTML = '<option value="">Todas las cuentas</option>' +
+      state.cuentas.map((c) => `<option value="${c.id}">${esc(c.nombre)}${c.activa ? '' : ' (inactiva)'}</option>`).join('');
+    selCuenta.value = state.anCuenta || '';
+    if (!state.anMes) state.anMes = mesKey(hoy());
+    $('#an-mes').value = state.anMes;
+
+    let q = sb.from('categorias_por_mes').select('*').eq('mes', state.anMes);
+    if (state.anCuenta) q = q.eq('cuenta_id', Number(state.anCuenta));
+    const { data, error } = await q;
+    if (mi !== seqAn) return;
+    const cont = $('#an-contenido');
+    if (error) { cont.innerHTML = cajaError(error.message); return; }
+
+    const filas = data || [];
+    const suma = (tipo) => filas.filter((f) => f.tipo === tipo).reduce((a, f) => a + Number(f.total), 0);
+    const ing = suma('Ingreso');
+    const gas = suma('Gasto');
+    const bal = ing - gas;
+    const n = filas.reduce((a, f) => a + Number(f.n_movimientos), 0);
+    const mayor = Math.max(ing, gas);
+
+    const porCat = new Map();
+    filas.filter((f) => f.tipo === 'Gasto').forEach((f) => {
+      const x = porCat.get(f.categoria_id) || { id: f.categoria_id, nombre: f.categoria, total: 0, n: 0 };
+      x.total += Number(f.total);
+      x.n += Number(f.n_movimientos);
+      porCat.set(f.categoria_id, x);
+    });
+    const cats = [...porCat.values()].sort((a, b) => b.total - a.total);
+    const top = cats[0]?.total || 0;
+
+    const cuentaNombre = state.cuentas.find((c) => String(c.id) === String(state.anCuenta))?.nombre;
+    const estado = n === 0
+      ? { frase: 'No hay movimientos en este periodo', badge: 'Sin datos', clase: '' }
+      : bal >= 0
+        ? { frase: 'Estás gastando menos de lo que ingresas', badge: 'Positivo', clase: 'badge-ok' }
+        : { frase: 'Tus gastos superan tus ingresos', badge: 'A revisar', clase: 'badge-mal' };
+
+    cont.innerHTML = `
+      <section class="balance-card">
+        <div class="balance-top">
+          <div>
+            <p class="eyebrow">Balance del periodo</p>
+            <p class="balance-frase">${esc(estado.frase)}</p>
+          </div>
+          <span class="badge ${estado.clase}">${esc(estado.badge)}</span>
+        </div>
+        <p class="balance-num num ${bal < 0 ? 'neg' : bal > 0 ? 'ingreso' : ''}">${fmtSigned(bal)}</p>
+        <p class="hint">Ingresos menos gastos${cuentaNombre ? ` en ${esc(cuentaNombre)}` : ''}, ${esc(nombreMes(mesDeKey(state.anMes)).toLowerCase())}</p>
+        <div class="balance-partes">
+          <div class="parte">
+            <span class="parte-label"><i class="dot" style="background:var(--ingreso)"></i>Ingresos</span>
+            <strong class="num">${fmtMoney(ing)}</strong>
+            <span class="barra"><span class="barra-ing" style="width:${mayor ? (ing / mayor) * 100 : 0}%"></span></span>
+          </div>
+          <div class="parte">
+            <span class="parte-label"><i class="dot" style="background:var(--gasto)"></i>Gastos</span>
+            <strong class="num">${fmtMoney(gas)}</strong>
+            <span class="barra"><span class="barra-gas" style="width:${mayor ? (gas / mayor) * 100 : 0}%"></span></span>
+          </div>
+        </div>
+        <p class="hint">${n} ${n === 1 ? 'movimiento incluido' : 'movimientos incluidos'} en el cálculo. Los pagos de tarjeta y los ajustes no cuentan.</p>
+      </section>
+
+      <section class="block">
+        <div class="block-head">
+          <h2>Dónde se va tu dinero</h2>
+          ${cats.length ? '<span class="hint" style="margin:0">Toca una categoría para ver sus gastos</span>' : ''}
+        </div>
+        ${cats.length
+          ? `<ul class="list cats">${cats.map((c, i) => `
+            <li>
+              <button type="button" class="cat-btn" data-cat="${esc(c.id)}" aria-expanded="false">
+                <span class="cat-rank">${i + 1}</span>
+                <span class="cat-main">
+                  <span class="cat-nombre">${esc(c.nombre)}</span>
+                  <span class="cat-sub">${gas > 0 ? Math.round((c.total / gas) * 100) : 0}% del gasto, ${c.n} ${c.n === 1 ? 'movimiento' : 'movimientos'}</span>
+                  <span class="barra"><span class="barra-gas" style="width:${top ? (c.total / top) * 100 : 0}%"></span></span>
+                </span>
+                <span class="cat-total num">${fmtMoney(c.total)}</span>
+              </button>
+              <div class="cat-detalle" hidden></div>
+            </li>`).join('')}</ul>`
+          : '<p class="vacio">No hay gastos en este periodo.</p>'}
+      </section>`;
+  }
+
+  async function toggleCategoria(btn) {
+    const detalle = btn.nextElementSibling;
+    const abierto = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', String(!abierto));
+    detalle.hidden = abierto;
+    if (abierto || detalle.dataset.cargado) return;
+
+    detalle.innerHTML = '<p class="hint cat-cargando">Cargando…</p>';
+    const mes = mesDeKey(state.anMes);
+    let q = sb.from('movimientos_detalle').select('*')
+      .eq('categoria_id', Number(btn.dataset.cat))
+      .eq('tipo', 'Gasto')
+      .gte('dia', mesKey(mes))
+      .lt('dia', mesKey(mesSiguiente(mes)))
+      .order('fecha', { ascending: false });
+    if (state.anCuenta) q = q.eq('cuenta_id', Number(state.anCuenta));
+    const { data, error } = await q;
+    if (error) { detalle.innerHTML = cajaError(error.message); return; }
+    detalle.innerHTML = `<ul class="list sub-list">${(data || []).map(filaMov).join('')}</ul>`;
+    detalle.dataset.cargado = '1';
+  }
+
   // ===================== Ajustes =====================
   let seqAj = 0;
   async function renderAjustes() {
@@ -690,6 +851,7 @@
   }
 
   $('#btn-nuevo').addEventListener('click', () => abrirNuevo('Gasto'));
+  $('#btn-nuevo-side').addEventListener('click', () => abrirNuevo('Gasto'));
   $$('input[name="tipo"]', formNuevo).forEach((r) => r.addEventListener('change', llenarSelects));
   $('#nuevo-categoria').addEventListener('change', llenarCuentas);
 
