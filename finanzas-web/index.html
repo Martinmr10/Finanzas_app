@@ -53,9 +53,30 @@
 
   <!-- ============ APP ============ -->
   <div id="app" hidden>
+    <aside class="sidebar" aria-label="Menú principal">
+      <div class="side-brand">
+        <img src="icons/icon-192.png" alt="" width="40" height="40">
+        <div><strong>Mis Finanzas</strong><span>Tu espacio personal</span></div>
+      </div>
+      <nav class="side-nav">
+        <button type="button" data-go="inicio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20h-5.5v-5.5h-5V20H4z"/></svg><span>Inicio</span></button>
+        <button type="button" data-go="movimientos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span>Movimientos</span></button>
+        <button type="button" class="side-nuevo" id="btn-nuevo-side">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Nuevo movimiento</span>
+        </button>
+        <button type="button" data-go="analisis"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-8M12 20V5M19 20v-5M3 20h18"/></svg><span>Análisis</span></button>
+        <button type="button" data-go="ajustes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4"/></svg><span>Ajustes</span></button>
+      </nav>
+      <div class="side-user">
+        <span class="avatar" id="side-avatar" aria-hidden="true"></span>
+        <div><strong id="side-nombre"></strong><span id="side-email"></span></div>
+      </div>
+    </aside>
+
     <div class="wrap">
       <section id="vista-inicio" class="vista" aria-live="polite"></section>
       <section id="vista-movimientos" class="vista" hidden></section>
+      <section id="vista-analisis" class="vista" hidden></section>
       <section id="vista-ajustes" class="vista" hidden></section>
     </div>
 
@@ -71,6 +92,10 @@
       <button type="button" data-go="movimientos">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
         <span>Movimientos</span>
+      </button>
+      <button type="button" data-go="analisis">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-8M12 20V5M19 20v-5M3 20h18"/></svg>
+        <span>Análisis</span>
       </button>
       <button type="button" data-go="ajustes">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4"/></svg>
