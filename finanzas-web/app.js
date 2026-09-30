@@ -237,7 +237,7 @@
 
   async function cargarCatalogo() {
     const [c, k] = await Promise.all([
-      sb.from('cuentas').select('id,nombre,tipo,activa,orden,cupo,dia_corte,fecha_pago').order('orden').order('nombre'),
+      sb.from('cuentas').select('id,nombre,tipo,activa,orden,cupo,dia_corte,dia_pago').order('orden').order('nombre'),
       sb.from('categorias').select('id,nombre,tipo,activa,orden,especial').order('orden').order('nombre'),
     ]);
     if (c.error || k.error) toast('No se pudieron cargar cuentas y categorías.', true);
@@ -310,13 +310,15 @@
     const mi = ++seqInicio;
     const mesHoy = hoy();
 
-    const [r, s, u] = await Promise.all([
+    const [r, s, u, t] = await Promise.all([
       sb.from('resumen_mensual').select('*').eq('mes', mesKey(mesHoy)).maybeSingle(),
       sb.from('saldos').select('*').order('orden'),
       sb.from('movimientos_detalle').select('*').order('fecha', { ascending: false }).limit(6),
+      sb.rpc('estado_tarjetas'),
     ]);
     if (mi !== seqInicio) return;
-    const err = r.error || s.error || u.error;
+    const err = r.error || s.error || u.error || t.error;
+    state.tarjetas = new Map((t.data || []).map((x) => [String(x.cuenta_id), x]));
     if (err) { v.innerHTML = cajaError(err.message); return; }
 
     const res = r.data || { ingresos: 0, gastos: 0, balance: 0, n_movimientos: 0 };
@@ -329,13 +331,11 @@
     const activas = saldos.filter((x) => x.activa);
     const ultimos = u.data || [];
 
-    const alertas = activas.filter((c) => c.tipo === 'credito').map((c) => {
-      const f = infoFechas(c.cuenta_id, Number(c.utilizado));
-      if (!f || f.dias == null || Number(c.utilizado) <= 0) return '';
-      if (f.dias > 3 && f.dias >= 0) return '';
-      const cuando = f.dias < 0 ? `venció el ${f.fecha}` : f.dias === 0 ? 'vence hoy' : f.dias === 1 ? 'vence mañana' : `vence el ${f.fecha}`;
-      return `<div class="alerta" role="alert"><strong>Paga ${esc(c.nombre)}</strong>: ${esc(cuando)}. Debes ${fmtMoney(c.utilizado)}.</div>`;
-    }).join('');
+    const alertas = [...state.tarjetas.values()]
+      .map((e) => cicloTarjeta(e).alerta)
+      .filter(Boolean)
+      .map((a) => `<div class="alerta" role="alert">${a}</div>`)
+      .join('');
 
     v.innerHTML = `
       ${htmlGuiaInstalar()}
@@ -396,44 +396,55 @@
     return { y: sig.y, m: sig.m, d: Math.min(dia, ultimoDia(sig.y, sig.m)) };
   }
 
-  function infoFechas(cuentaId, deuda) {
-    const cfgCuenta = state.cuentas.find((x) => x.id === Number(cuentaId));
-    if (!cfgCuenta) return null;
-    const partes = [];
-    let urgente = false;
-    let pagoTxt = null;
-    if (cfgCuenta.dia_corte) partes.push(`Corte ${fCorta.format(fechaDe(proximoCorte(cfgCuenta.dia_corte)))}`);
-    if (cfgCuenta.fecha_pago) {
-      const [y, m, d] = cfgCuenta.fecha_pago.split('-').map(Number);
-      const fp = { y, m, d };
-      const dias = diasEntre(hoy(), fp);
-      const fecha = fCorta.format(fechaDe(fp));
-      if (dias < 0) pagoTxt = `La fecha de pago (${fecha}) ya pasó: actualízala`;
-      else if (dias === 0) pagoTxt = `Hoy es el último día de pago`;
-      else if (dias === 1) pagoTxt = `Pagar hasta mañana, ${fecha}`;
-      else pagoTxt = `Pagar hasta el ${fecha} (en ${dias} días)`;
-      urgente = deuda > 0 && dias <= 3;
-      partes.push(pagoTxt);
-      return { texto: partes.join('. '), urgente, dias, fecha };
+  const isoAObj = (iso) => { const [y, m, d] = iso.split('-').map(Number); return { y, m, d }; };
+  const fechaCortaIso = (iso) => fCorta.format(fechaDe(isoAObj(iso)));
+  const fAnio = new Intl.DateTimeFormat('es-EC', { timeZone: TZ, day: 'numeric', month: 'short', year: 'numeric' });
+
+  // Qué hay que pagar según el día de corte y el día de pago
+  function cicloTarjeta(e) {
+    const res = { lineas: [], alerta: null };
+    const linea = (texto, rojo = false) => res.lineas.push({ texto, rojo });
+    if (!e) return res;
+    if (!e.dia_corte || !e.dia_pago) { linea('Configura el día de corte y el día de pago en Ajustes'); return res; }
+
+    const pend = Number(e.pendiente_estado);
+    const arr = Number(e.arrastre);
+    const cons = Number(e.consumos_ciclo);
+    const fp = fechaCortaIso(e.fecha_pago);
+    const fc = fechaCortaIso(e.ultimo_corte);
+    const prox = fechaCortaIso(e.proximo_corte);
+    const dias = diasEntre(hoy(), isoAObj(e.fecha_pago));
+
+    if (pend > 0 && dias >= 0) {
+      const cuando = dias === 0 ? 'hoy (último día)' : dias === 1 ? `hasta mañana, ${fp}` : `hasta el ${fp} (en ${dias} días)`;
+      linea(`Pagar ${fmtMoney(pend)} ${cuando}`, dias <= 3);
+      if (arr > 0) linea(`Incluye ${fmtMoney(arr)} que no pagaste del estado anterior`, true);
+      if (dias <= 3) res.alerta = `<strong>Paga ${esc(e.nombre)}</strong>: ${fmtMoney(pend)} ${esc(cuando)}.`;
+    } else if (pend > 0) {
+      linea(`No completaste el pago del ${fp}: quedaron ${fmtMoney(pend)} y pasan al próximo estado`, true);
+      res.alerta = `<strong>${esc(e.nombre)}</strong>: quedaron ${fmtMoney(pend)} sin pagar del estado del ${esc(fc)} (vencía el ${esc(fp)}). Se suman al próximo estado.`;
+    } else if (Number(e.monto_estado) > 0) {
+      linea(`Estado del ${fc} pagado completo`);
     }
-    return partes.length ? { texto: partes.join('. '), urgente: false, dias: null } : null;
+
+    if (cons > 0) linea(`Consumos desde el ${fc}: ${fmtMoney(cons)}. Se pagan después del corte del ${prox}`);
+    else if (!res.lineas.length) linea(`Nada por pagar. Próximo corte: ${prox}`);
+    return res;
   }
 
   function estadoTarjeta(c) {
     const saldo = Number(c.saldo);
-    if (saldo < 0) return { texto: `Debes ${fmtMoney(-saldo)}`, clase: 'neg' };
+    if (saldo < 0) return { texto: `Utilizado ${fmtMoney(-saldo)}`, clase: 'neg' };
     if (saldo > 0) return { texto: `Saldo a favor ${fmtMoney(saldo)}`, clase: 'ingreso' };
     return { texto: 'Sin deuda', clase: '' };
   }
 
   function filaCuentaInicio(c) {
     if (c.tipo === 'credito') {
-      const sub = c.cupo == null
-        ? 'Configura el cupo en Ajustes'
-        : `Disponible ${fmtMoney(c.disponible)} de ${fmtMoney(c.cupo)}`;
-      const f = infoFechas(c.cuenta_id, Number(c.utilizado));
+      const ciclo = cicloTarjeta(state.tarjetas?.get(String(c.cuenta_id)));
       return `<li class="row">
-        <span class="row-main">${esc(c.nombre)}<span class="row-sub num">${esc(sub)}</span>${f ? `<span class="row-sub ${f.urgente ? 'neg' : ''}">${esc(f.texto)}</span>` : ''}</span>
+        <span class="row-main">${esc(c.nombre)}${ciclo.lineas.map((l) =>
+          `<span class="row-sub num ${l.rojo ? 'neg' : ''}">${esc(l.texto)}</span>`).join('')}</span>
         <span class="num ${estadoTarjeta(c).clase}">${estadoTarjeta(c).texto}</span>
       </li>`;
     }
@@ -671,7 +682,49 @@
               <div class="cat-detalle" hidden></div>
             </li>`).join('')}</ul>`
           : '<p class="vacio">No hay gastos en este periodo.</p>'}
+      </section>
+      <div id="an-tarjetas"></div>`;
+    cargarHistorialTarjetas(mi);
+  }
+
+  async function cargarHistorialTarjetas(mi) {
+    const cont = $('#an-tarjetas');
+    if (!cont) return;
+    let tarjetas = state.cuentas.filter((c) => c.tipo === 'credito' && c.activa);
+    if (state.anCuenta) tarjetas = tarjetas.filter((c) => String(c.id) === String(state.anCuenta));
+    if (!tarjetas.length) { cont.innerHTML = ''; return; }
+
+    const configurada = (t) => t.dia_corte && t.dia_pago;
+    const resultados = await Promise.all(tarjetas.map((t) =>
+      configurada(t) ? sb.rpc('historial_tarjeta', { p_cuenta_id: t.id, p_meses: 12 }) : Promise.resolve({ data: [] })));
+    if (mi !== seqAn) return;
+
+    cont.innerHTML = tarjetas.map((t, i) => {
+      const titulo = `<div class="block-head"><h2>Pagos de ${esc(t.nombre)}</h2><span class="hint" style="margin:0">Últimos 12 estados de cuenta</span></div>`;
+      const r = resultados[i];
+      if (r.error) return `<section class="block">${titulo}${cajaError(r.error.message)}</section>`;
+      if (!configurada(t)) return `<section class="block">${titulo}<p class="vacio">Configura el día de corte y el de pago en Ajustes para ver si pagaste completo cada mes.</p></section>`;
+
+      const filas = (r.data || []).filter((f) => Number(f.monto_estado) > 0);
+      if (!filas.length) return `<section class="block">${titulo}<p class="vacio">Todavía no hay estados de cuenta con saldo cuyo plazo de pago haya terminado.</p></section>`;
+      const fallos = filas.filter((f) => Number(f.pendiente) > 0).length;
+      const resumen = fallos
+        ? `No completaste el pago en ${fallos} de ${filas.length} ${filas.length === 1 ? 'estado de cuenta' : 'estados de cuenta'}.`
+        : `Pagaste completo ${filas.length === 1 ? 'el único estado de cuenta' : `los ${filas.length} estados de cuenta`}.`;
+
+      return `<section class="block">
+        ${titulo}
+        <p class="resumen-tarjeta ${fallos ? 'neg' : 'ingreso'}">${esc(resumen)}</p>
+        <ul class="list">${filas.map((f) => {
+          const pend = Number(f.pendiente);
+          return `<li class="row">
+            <span class="row-main">Corte del ${esc(fAnio.format(fechaDe(isoAObj(f.corte))))}
+              <span class="row-sub num">Estado ${fmtMoney(f.monto_estado)}, pagaste ${fmtMoney(f.pagado)} hasta el ${esc(fechaCortaIso(f.fecha_pago))}</span></span>
+            <span class="num estado-corte ${pend > 0 ? 'neg' : 'ingreso'}">${pend > 0 ? `Quedaron ${fmtMoney(pend)}` : 'Pagado completo'}</span>
+          </li>`;
+        }).join('')}</ul>
       </section>`;
+    }).join('');
   }
 
   async function toggleCategoria(btn) {
@@ -701,12 +754,14 @@
   async function renderAjustes() {
     const v = $('#vista-ajustes');
     const mi = ++seqAj;
-    const [s, t] = await Promise.all([
+    const [s, t, et] = await Promise.all([
       sb.from('saldos').select('*').order('orden'),
       sb.from('tokens_atajo').select('id,nombre,sufijo,created_at,last_used_at').order('created_at'),
+      sb.rpc('estado_tarjetas'),
     ]);
     if (mi !== seqAj) return;
-    const err = s.error || t.error;
+    const err = s.error || t.error || et.error;
+    state.tarjetas = new Map((et.data || []).map((x) => [String(x.cuenta_id), x]));
     if (err) { v.innerHTML = cajaError(err.message); return; }
 
     const cuentas = (s.data || []).filter((c) => c.activa);
@@ -760,18 +815,16 @@
     const id = esc(c.cuenta_id);
     const nombre = esc(c.nombre);
     if (c.tipo === 'credito') {
-      const estado = estadoTarjeta(c).texto;
-      const detalle = c.cupo == null
-        ? `${estado}. Sin cupo configurado`
-        : `Cupo ${fmtMoney(c.cupo)}. ${estado}. Disponible ${fmtMoney(c.disponible)}`;
-      const f = infoFechas(c.cuenta_id, Number(c.utilizado));
+      const e = state.tarjetas?.get(String(c.cuenta_id));
+      const ciclo = cicloTarjeta(e);
+      const corte = c.dia_corte ?? e?.dia_corte;
+      const pago = c.dia_pago ?? e?.dia_pago;
       return `<li class="cuenta-row cuenta-credito">
         <span class="row-main">${nombre} <span class="etiqueta">Crédito</span>
-          <span class="row-sub num">${esc(detalle)}</span>
-          <span class="row-sub ${f?.urgente ? 'neg' : ''}">${esc(f ? f.texto : 'Sin fechas de corte y pago')}</span>
+          <span class="row-sub num">${esc(estadoTarjeta(c).texto)}. ${corte && pago ? `Corte el ${esc(corte)}, pago hasta el ${esc(pago)} de cada mes` : 'Sin fechas configuradas'}</span>
+          ${ciclo.lineas.map((l) => `<span class="row-sub ${l.rojo ? 'neg' : ''}">${esc(l.texto)}</span>`).join('')}
         </span>
         <span class="botones">
-          <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="cupo" data-actual="${esc(c.cupo ?? '')}">Cupo</button>
           <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="deuda">Deuda</button>
           <button type="button" class="btn-small" data-fechas="${id}" data-nombre="${nombre}">Fechas</button>
         </span>
@@ -819,18 +872,24 @@
     const aviso = $('#nuevo-aviso');
     const tarjeta = state.cuentas.find((c) => c.activa && c.tipo === 'credito');
     if (!tarjeta) { aviso.textContent = 'No tienes una tarjeta de crédito registrada.'; return; }
-    aviso.textContent = `Consultando la deuda de ${tarjeta.nombre}…`;
-    const { data, error } = await sb.from('saldos').select('saldo').eq('cuenta_id', tarjeta.id).maybeSingle();
+    aviso.textContent = `Consultando ${tarjeta.nombre}…`;
+    const { data, error } = await sb.rpc('estado_tarjetas');
     if (categoriaElegida()?.especial !== 'pago_tarjeta') return;
-    if (error || !data) {
+    const e = (data || []).find((x) => x.cuenta_id === tarjeta.id);
+    if (error || !e) {
       aviso.textContent = `Se descuenta de la cuenta elegida y baja la deuda de ${tarjeta.nombre}.`;
       return;
     }
-    const saldo = Number(data.saldo);
-    state.deudaTarjeta = Math.max(-saldo, 0);
-    aviso.textContent = saldo < 0
-      ? `Deuda actual de ${tarjeta.nombre}: ${fmtMoney(-saldo)}. El pago se descuenta de la cuenta elegida y no cuenta como gasto.`
-      : `${tarjeta.nombre} no tiene deuda registrada${saldo > 0 ? ` (saldo a favor ${fmtMoney(saldo)})` : ''}. Si sí debes, primero actualiza la deuda en Ajustes.`;
+    const deuda = Number(e.deuda);
+    const pend = Number(e.pendiente_estado);
+    state.deudaTarjeta = deuda;
+    if (deuda <= 0) {
+      aviso.textContent = `${tarjeta.nombre} no tiene deuda registrada. Si sí debes, primero actualiza la deuda en Ajustes.`;
+    } else if (e.fecha_pago && pend > 0) {
+      aviso.textContent = `Del estado del ${fechaCortaIso(e.ultimo_corte)} te faltan ${fmtMoney(pend)} (pago hasta el ${fechaCortaIso(e.fecha_pago)}). Deuda total: ${fmtMoney(deuda)}.`;
+    } else {
+      aviso.textContent = `El último estado de cuenta ya está pagado. Deuda total de ${tarjeta.nombre}: ${fmtMoney(deuda)}.`;
+    }
   }
 
   function llenarSelects() {
@@ -1014,8 +1073,11 @@
   const formFechas = $('#form-fechas');
   let fechasCuentaId = null;
   const selCorte = $('#fechas-corte');
-  selCorte.innerHTML = '<option value="">Sin configurar</option>' +
+  const selPago = $('#fechas-dia-pago');
+  const opcionesDia = '<option value="">Sin configurar</option>' +
     Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">El ${i + 1} de cada mes</option>`).join('');
+  selCorte.innerHTML = opcionesDia;
+  selPago.innerHTML = opcionesDia;
 
   function abrirFechas(cuentaId, nombre) {
     fechasCuentaId = Number(cuentaId);
@@ -1023,17 +1085,21 @@
     mostrarError(formFechas, '');
     $('#fechas-titulo').textContent = `Fechas de ${nombre}`;
     selCorte.value = c.dia_corte ? String(c.dia_corte) : '';
-    $('#fechas-pago').value = c.fecha_pago || '';
+    selPago.value = c.dia_pago ? String(c.dia_pago) : '';
     $('#sheet-fechas').showModal();
   }
 
   formFechas.addEventListener('submit', async (e) => {
     e.preventDefault();
     const diaCorte = selCorte.value ? Number(selCorte.value) : null;
-    const fechaPago = $('#fechas-pago').value || null;
+    const diaPago = selPago.value ? Number(selPago.value) : null;
+    if ((diaCorte && !diaPago) || (!diaCorte && diaPago))
+      return mostrarError(formFechas, 'Elige los dos días: el de corte y el de pago.');
+    if (diaCorte && diaCorte === diaPago)
+      return mostrarError(formFechas, 'El día de pago tiene que ser distinto del día de corte.');
     const btn = $('button[type="submit"]', formFechas);
     setBusy(btn, true, 'Guardando…');
-    const { error } = await sb.from('cuentas').update({ dia_corte: diaCorte, fecha_pago: fechaPago }).eq('id', fechasCuentaId);
+    const { error } = await sb.from('cuentas').update({ dia_corte: diaCorte, dia_pago: diaPago }).eq('id', fechasCuentaId);
     setBusy(btn, false);
     if (error) return mostrarError(formFechas, 'No se pudo guardar: ' + error.message);
     $('#sheet-fechas').close();
