@@ -200,6 +200,71 @@
     </form>
   </dialog>
 
+  <!-- ============ HOJA: CREAR / EDITAR CUENTA ============ -->
+  <dialog id="sheet-cuenta" class="sheet" aria-labelledby="cuenta-titulo">
+    <form id="form-cuenta" class="sheet-in" novalidate>
+      <div class="sheet-head">
+        <h2 id="cuenta-titulo">Nueva cuenta</h2>
+        <button type="button" class="icon-btn" data-cerrar aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+
+      <div class="cuenta-cabecera">
+        <span class="emoji-vista" id="cuenta-emoji-vista" aria-hidden="true">💳</span>
+        <label class="field">
+          <span>Nombre</span>
+          <input id="cuenta-nombre" type="text" maxlength="40" autocomplete="off" placeholder="Ej. Banco Pichincha">
+        </label>
+      </div>
+
+      <label class="field">
+        <span>Tipo de cuenta</span>
+        <select id="cuenta-tipo"></select>
+      </label>
+      <p class="hint fechas-hint" id="cuenta-tipo-ayuda" hidden>El tipo no se puede cambiar después de crear la cuenta.</p>
+
+      <div class="field">
+        <span>Emoji</span>
+        <div class="emoji-grid" id="cuenta-emojis" role="group" aria-label="Elegir emoji"></div>
+        <input id="cuenta-emoji-otro" class="emoji-otro" type="text" maxlength="8" autocomplete="off" placeholder="O escribe o pega otro emoji">
+      </div>
+
+      <div id="cuenta-saldo-wrap">
+        <label class="field">
+          <span>Saldo inicial (opcional)</span>
+          <input id="cuenta-saldo" class="num" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00">
+        </label>
+        <p class="hint fechas-hint">Cuánto dinero hay hoy en esta cuenta. Se registra como ajuste, no como ingreso.</p>
+      </div>
+
+      <div id="cuenta-fechas-wrap" hidden>
+        <div class="field-row">
+          <label class="field">
+            <span>Día de corte</span>
+            <select id="cuenta-corte"></select>
+          </label>
+          <label class="field">
+            <span>Día de pago</span>
+            <select id="cuenta-pago"></select>
+          </label>
+        </div>
+        <p class="hint fechas-hint">Se crea sola la categoría «Pago» de esta tarjeta, para registrar sus pagos también desde el atajo.</p>
+      </div>
+
+      <label class="check-row" id="cuenta-activa-wrap" hidden>
+        <span>
+          <strong>Cuenta activa</strong>
+          <span class="hint">Si la desactivas, deja de aparecer al registrar y en el atajo, pero su historial se conserva.</span>
+        </span>
+        <input type="checkbox" id="cuenta-activa" checked>
+      </label>
+
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Guardar cuenta</button>
+    </form>
+  </dialog>
+
   <!-- ============ HOJA: CONECTAR IPHONE ============ -->
   <dialog id="sheet-token" class="sheet" aria-labelledby="token-titulo">
     <div class="sheet-in">
