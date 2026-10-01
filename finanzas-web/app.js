@@ -98,6 +98,25 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
   };
 
+  // ===================== Cuentas: tipos y emoji =====================
+  const TIPOS_CUENTA = {
+    credito: { nombre: 'Tarjeta de crédito', emoji: '💳' },
+    efectivo: { nombre: 'Efectivo', emoji: '💵' },
+    banco: { nombre: 'Cuenta bancaria', emoji: '🏦' },
+    ahorro: { nombre: 'Ahorro', emoji: '🐷' },
+    otra: { nombre: 'Otra', emoji: '💼' },
+    tarjeta: { nombre: 'Tarjeta de débito', emoji: '💳' },
+  };
+  const EMOJIS = ['💵', '💳', '🏦', '🐷', '💰', '👛', '🪙', '📈', '💼', '⚽', '🏠', '🚗',
+    '✈️', '🎓', '🛒', '🍔', '🐶', '🎁', '💎', '📱', '⭐', '❤️', '🔥', '🧾'];
+
+  // "💵 Efectivo" (busca el emoji en el catálogo si la fila no lo trae)
+  function etiquetaCuenta(c) {
+    const id = c.cuenta_id ?? c.id;
+    const emoji = c.emoji ?? state.cuentas.find((x) => x.id === Number(id))?.emoji ?? '';
+    return `${emoji ? emoji + ' ' : ''}${c.nombre}`;
+  }
+
   // ===================== Estado =====================
   const state = {
     user: null,
@@ -257,8 +276,8 @@
 
   async function cargarCatalogo() {
     const [c, k] = await Promise.all([
-      sb.from('cuentas').select('id,nombre,tipo,activa,orden,cupo,dia_corte,dia_pago').order('orden').order('nombre'),
-      sb.from('categorias').select('id,nombre,tipo,activa,orden,especial').order('orden').order('nombre'),
+      sb.from('cuentas').select('id,nombre,tipo,activa,orden,cupo,dia_corte,dia_pago,emoji').order('orden').order('nombre'),
+      sb.from('categorias').select('id,nombre,tipo,activa,orden,especial,cuenta_destino_id').order('orden').order('nombre'),
     ]);
     if (c.error || k.error) toast('No se pudieron cargar cuentas y categorías.', true);
     state.cuentas = c.data || [];
@@ -466,13 +485,13 @@
     if (c.tipo === 'credito') {
       const ciclo = cicloTarjeta(state.tarjetas?.get(String(c.cuenta_id)));
       return `<li class="row">
-        <span class="row-main">${esc(c.nombre)}${ciclo.lineas.map((l) =>
+        <span class="row-main">${esc(etiquetaCuenta(c))}${ciclo.lineas.map((l) =>
           `<span class="row-sub num ${l.rojo ? 'neg' : ''}">${esc(l.texto)}</span>`).join('')}</span>
         <span class="num ${estadoTarjeta(c).clase}">${estadoTarjeta(c).texto}</span>
       </li>`;
     }
     return `<li class="row">
-      <span class="row-main">${esc(c.nombre)}</span>
+      <span class="row-main">${esc(etiquetaCuenta(c))}</span>
       <span class="num ${Number(c.saldo) < 0 ? 'neg' : ''}">${fmtSigned(c.saldo)}</span>
     </li>`;
   }
@@ -622,7 +641,7 @@
 
     const selCuenta = $('#an-cuenta');
     selCuenta.innerHTML = '<option value="">Todas las cuentas</option>' +
-      state.cuentas.map((c) => `<option value="${c.id}">${esc(c.nombre)}${c.activa ? '' : ' (inactiva)'}</option>`).join('');
+      state.cuentas.map((c) => `<option value="${c.id}">${esc(etiquetaCuenta(c))}${c.activa ? '' : ' (inactiva)'}</option>`).join('');
     selCuenta.value = state.anCuenta || '';
     if (!state.anMes) state.anMes = mesKey(hoy());
     $('#an-mes').value = state.anMes;
@@ -788,6 +807,7 @@
     if (err) { v.innerHTML = cajaError(err.message); return; }
 
     const cuentas = (s.data || []).filter((c) => c.activa);
+    const inactivas = (s.data || []).filter((c) => !c.activa);
     const tokens = t.data || [];
 
     v.innerHTML = `
@@ -795,10 +815,15 @@
       <p class="perfil">Sesión iniciada como <strong>${esc(state.user?.email)}</strong></p>
 
       <section class="block">
-        <div class="block-head"><h2>Saldo de tus cuentas</h2></div>
+        <div class="block-head"><h2>Tus cuentas</h2><button type="button" class="link" id="btn-nueva-cuenta">+ Nueva cuenta</button></div>
         <ul class="list">
           ${cuentas.map(filaCuentaAjustes).join('')}
         </ul>
+        ${inactivas.length ? `<details class="inactivas"><summary>Cuentas desactivadas (${inactivas.length})</summary>
+          <ul class="list">${inactivas.map((c) => `<li class="cuenta-row">
+            <span class="row-main">${esc(etiquetaCuenta(c))}<span class="row-sub num">${fmtSigned(c.saldo)}</span></span>
+            <button type="button" class="btn-small" data-editar="${esc(c.cuenta_id)}">Editar</button>
+          </li>`).join('')}</ul></details>` : ''}
         <p class="hint">Si un saldo no coincide con la realidad, indica cuánto hay hoy (o cuánto debes en la tarjeta) y se registra la diferencia.</p>
       </section>
 
@@ -818,6 +843,8 @@
       <button type="button" class="btn btn-danger" id="btn-salir">Cerrar sesión</button>`;
 
     $('#btn-conectar', v).addEventListener('click', abrirToken);
+    $('#btn-nueva-cuenta', v).addEventListener('click', () => abrirCuenta(null));
+    $$('[data-editar]', v).forEach((b) => b.addEventListener('click', () => abrirCuenta(Number(b.dataset.editar))));
     $('#btn-salir', v).addEventListener('click', async () => {
       await sb.auth.signOut();
       state.movs.clear();
@@ -843,19 +870,22 @@
       const corte = c.dia_corte ?? e?.dia_corte;
       const pago = c.dia_pago ?? e?.dia_pago;
       return `<li class="cuenta-row cuenta-credito">
-        <span class="row-main">${nombre} <span class="etiqueta">Crédito</span>
+        <span class="row-main">${esc(etiquetaCuenta(c))} <span class="etiqueta">Crédito</span>
           <span class="row-sub num">${esc(estadoTarjeta(c).texto)}. ${corte && pago ? `Corte el ${esc(corte)}, pago hasta el ${esc(pago)} de cada mes` : 'Sin fechas configuradas'}</span>
           ${ciclo.lineas.map((l) => `<span class="row-sub ${l.rojo ? 'neg' : ''}">${esc(l.texto)}</span>`).join('')}
         </span>
         <span class="botones">
           <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="deuda">Deuda</button>
-          <button type="button" class="btn-small" data-fechas="${id}" data-nombre="${nombre}">Fechas</button>
+          <button type="button" class="btn-small" data-editar="${id}">Editar</button>
         </span>
       </li>`;
     }
     return `<li class="cuenta-row">
-      <span class="row-main">${nombre}<span class="row-sub num ${Number(c.saldo) < 0 ? 'neg' : ''}">${fmtSigned(c.saldo)}</span></span>
-      <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="saldo">Actualizar</button>
+      <span class="row-main">${esc(etiquetaCuenta(c))}<span class="row-sub num ${Number(c.saldo) < 0 ? 'neg' : ''}">${esc(TIPOS_CUENTA[c.tipo]?.nombre || '')}, ${fmtSigned(c.saldo)}</span></span>
+      <span class="botones">
+        <button type="button" class="btn-small" data-ajustar="${id}" data-nombre="${nombre}" data-modo="saldo">Actualizar</button>
+        <button type="button" class="btn-small" data-editar="${id}">Editar</button>
+      </span>
     </li>`;
   }
 
@@ -881,7 +911,7 @@
     const esPago = categoriaElegida()?.especial === 'pago_tarjeta';
     const previa = $('#nuevo-cuenta').value;
     const cuentas = state.cuentas.filter((c) => c.activa && !(esPago && c.tipo === 'credito'));
-    $('#nuevo-cuenta').innerHTML = cuentas.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+    $('#nuevo-cuenta').innerHTML = cuentas.map((c) => `<option value="${c.id}">${esc(etiquetaCuenta(c))}</option>`).join('');
     if (cuentas.some((c) => String(c.id) === previa)) $('#nuevo-cuenta').value = previa;
 
     const aviso = $('#nuevo-aviso');
@@ -893,7 +923,9 @@
 
   async function mostrarDeudaTarjeta() {
     const aviso = $('#nuevo-aviso');
-    const tarjeta = state.cuentas.find((c) => c.activa && c.tipo === 'credito');
+    const cat = categoriaElegida();
+    const tarjeta = state.cuentas.find((c) => c.id === cat?.cuenta_destino_id)
+      || state.cuentas.find((c) => c.activa && c.tipo === 'credito');
     if (!tarjeta) { aviso.textContent = 'No tienes una tarjeta de crédito registrada.'; return; }
     aviso.textContent = `Consultando ${tarjeta.nombre}…`;
     const { data, error } = await sb.rpc('estado_tarjetas');
@@ -976,7 +1008,7 @@
 
     $('#sheet-nuevo').close();
     const esPago = categoriaElegida()?.especial === 'pago_tarjeta';
-    toast(esPago ? `Pago de tarjeta de ${fmtMoney(monto)} registrado` : `${tipo} de ${fmtMoney(monto)} registrado`);
+    toast(esPago ? `${categoriaElegida()?.nombre || 'Pago de tarjeta'}: ${fmtMoney(monto)} registrado` : `${tipo} de ${fmtMoney(monto)} registrado`);
     refrescar();
   });
 
@@ -1127,6 +1159,140 @@
     if (error) return mostrarError(formFechas, 'No se pudo guardar: ' + error.message);
     $('#sheet-fechas').close();
     toast('Fechas guardadas');
+    await cargarCatalogo();
+    refrescar();
+  });
+
+  // ===================== Hoja: crear / editar cuenta =====================
+  const formCuenta = $('#form-cuenta');
+  let cuentaEditando = null;
+  let emojiCuenta = '';
+  let emojiElegidoAMano = false;
+
+  const opcionesDiaCuenta = '<option value="">Sin configurar</option>' +
+    Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">El ${i + 1} de cada mes</option>`).join('');
+  $('#cuenta-corte').innerHTML = opcionesDiaCuenta;
+  $('#cuenta-pago').innerHTML = opcionesDiaCuenta;
+  $('#cuenta-emojis').innerHTML = EMOJIS.map((e) =>
+    `<button type="button" class="emoji-op" data-emoji="${e}" aria-pressed="false" aria-label="${e}">${e}</button>`).join('');
+
+  function marcarEmoji(e) {
+    emojiCuenta = e;
+    $$('.emoji-op', formCuenta).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.emoji === e)));
+    $('#cuenta-emoji-vista').textContent = e || '·';
+  }
+
+  function ajustarFormCuenta() {
+    const tipo = $('#cuenta-tipo').value;
+    const esCredito = tipo === 'credito';
+    $('#cuenta-fechas-wrap').hidden = !esCredito;
+    $('#cuenta-saldo-wrap').hidden = esCredito || cuentaEditando != null;
+    if (!emojiElegidoAMano) marcarEmoji(TIPOS_CUENTA[tipo]?.emoji || '💼');
+  }
+
+  function abrirCuenta(id) {
+    const c = id != null ? state.cuentas.find((x) => x.id === id) : null;
+    cuentaEditando = c ? c.id : null;
+    formCuenta.reset();
+    mostrarError(formCuenta, '');
+    $('#cuenta-titulo').textContent = c ? `Editar ${c.nombre}` : 'Nueva cuenta';
+
+    const tipos = ['credito', 'efectivo', 'banco', 'ahorro', 'otra'];
+    if (c && !tipos.includes(c.tipo)) tipos.push(c.tipo);
+    $('#cuenta-tipo').innerHTML = tipos.map((t) => `<option value="${t}">${esc(TIPOS_CUENTA[t]?.nombre || t)}</option>`).join('');
+    $('#cuenta-tipo').value = c ? c.tipo : 'credito';
+    $('#cuenta-tipo').disabled = !!c;
+    $('#cuenta-tipo-ayuda').hidden = !c;
+
+    $('#cuenta-nombre').value = c ? c.nombre : '';
+    $('#cuenta-corte').value = c?.dia_corte ? String(c.dia_corte) : '';
+    $('#cuenta-pago').value = c?.dia_pago ? String(c.dia_pago) : '';
+    $('#cuenta-activa').checked = c ? c.activa : true;
+    $('#cuenta-activa-wrap').hidden = !c;
+    $('#cuenta-emoji-otro').value = '';
+
+    emojiElegidoAMano = !!c?.emoji;
+    if (c?.emoji) marcarEmoji(c.emoji);
+    ajustarFormCuenta();
+    $('#sheet-cuenta').showModal();
+    if (!c) setTimeout(() => $('#cuenta-nombre').focus(), 50);
+  }
+
+  $('#cuenta-tipo').addEventListener('change', ajustarFormCuenta);
+  $('#cuenta-emojis').addEventListener('click', (e) => {
+    const b = e.target.closest('.emoji-op');
+    if (!b) return;
+    emojiElegidoAMano = true;
+    $('#cuenta-emoji-otro').value = '';
+    marcarEmoji(b.dataset.emoji);
+  });
+  $('#cuenta-emoji-otro').addEventListener('input', (e) => {
+    const v = e.target.value.trim();
+    if (!v) return;
+    // Primer emoji o carácter visible de lo que se pegó
+    const primero = typeof Intl.Segmenter === 'function'
+      ? [...new Intl.Segmenter('es', { granularity: 'grapheme' }).segment(v)][0]?.segment
+      : [...v][0];
+    emojiElegidoAMano = true;
+    marcarEmoji(primero || '');
+  });
+
+  formCuenta.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    mostrarError(formCuenta, '');
+    const nombre = $('#cuenta-nombre').value.trim().replace(/\s+/g, ' ');
+    const tipo = $('#cuenta-tipo').value;
+    const esCredito = tipo === 'credito';
+    const diaCorte = $('#cuenta-corte').value ? Number($('#cuenta-corte').value) : null;
+    const diaPago = $('#cuenta-pago').value ? Number($('#cuenta-pago').value) : null;
+
+    if (!nombre) return mostrarError(formCuenta, 'Escribe un nombre para la cuenta.');
+    const repetida = state.cuentas.some((c) => c.nombre.toLowerCase() === nombre.toLowerCase() && c.id !== cuentaEditando);
+    if (repetida) return mostrarError(formCuenta, 'Ya tienes una cuenta con ese nombre.');
+    if (esCredito && ((diaCorte && !diaPago) || (!diaCorte && diaPago)))
+      return mostrarError(formCuenta, 'Elige los dos días: el de corte y el de pago.');
+    if (esCredito && diaCorte && diaCorte === diaPago)
+      return mostrarError(formCuenta, 'El día de pago tiene que ser distinto del día de corte.');
+
+    let saldoInicial = 0;
+    if (!esCredito && cuentaEditando == null && $('#cuenta-saldo').value.trim()) {
+      saldoInicial = parseMonto($('#cuenta-saldo').value);
+      if (isNaN(saldoInicial)) return mostrarError(formCuenta, 'El saldo inicial no es válido. Ejemplo: 150 o 42,30.');
+    }
+
+    const datos = {
+      nombre,
+      emoji: emojiCuenta || TIPOS_CUENTA[tipo]?.emoji || null,
+      dia_corte: esCredito ? diaCorte : null,
+      dia_pago: esCredito ? diaPago : null,
+    };
+
+    const btn = $('button[type="submit"]', formCuenta);
+    setBusy(btn, true, 'Guardando…');
+    let error;
+    if (cuentaEditando == null) {
+      const orden = Math.max(0, ...state.cuentas.map((c) => c.orden || 0)) + 1;
+      const r = await sb.from('cuentas').insert({ ...datos, tipo, orden }).select('id').single();
+      error = r.error;
+      if (!error && saldoInicial !== 0) {
+        const a = await sb.rpc('ajustar_saldo', { p_cuenta_id: r.data.id, p_monto_real: saldoInicial });
+        error = a.error;
+      }
+    } else {
+      const activa = $('#cuenta-activa').checked;
+      const r = await sb.from('cuentas').update({ ...datos, activa }).eq('id', cuentaEditando);
+      error = r.error;
+    }
+    setBusy(btn, false);
+
+    if (error) {
+      const msg = error.code === '23505'
+        ? 'Ya existe una cuenta o una categoría con ese nombre.'
+        : 'No se pudo guardar: ' + error.message;
+      return mostrarError(formCuenta, msg);
+    }
+    $('#sheet-cuenta').close();
+    toast(cuentaEditando == null ? `Cuenta «${nombre}» creada` : 'Cuenta actualizada');
     await cargarCatalogo();
     refrescar();
   });
