@@ -430,3 +430,27 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, .45); }
 .ojo { width: 44px; height: 44px; flex-shrink: 0; }
 .ojo svg { width: 22px; height: 22px; }
 .ojo[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+/* ===================== Crear / editar cuenta ===================== */
+.cuenta-cabecera { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: end; }
+.emoji-vista {
+  display: grid; place-items: center; width: 56px; height: 50px; margin-bottom: 14px;
+  border-radius: var(--r-sm); background: var(--surface-2); font-size: 28px;
+}
+.emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-bottom: 8px; }
+.emoji-op {
+  aspect-ratio: 1; border: 1.5px solid transparent; border-radius: 10px;
+  background: var(--surface-2); font-size: 22px; line-height: 1; padding: 0;
+}
+.emoji-op[aria-pressed="true"] { border-color: var(--accent); background: var(--surface); }
+.field .emoji-otro { height: 44px; font-size: 16px; }
+.check-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  margin: 4px 0 16px; padding: 14px; border-radius: var(--r-sm); background: var(--surface-2);
+}
+.check-row strong { display: block; }
+.check-row .hint { display: block; margin: 2px 0 0; }
+.check-row input { width: 24px; height: 24px; accent-color: var(--accent); flex-shrink: 0; }
+.inactivas { margin-top: 12px; }
+.inactivas summary { cursor: pointer; color: var(--muted); font-weight: 700; padding: 6px 2px; }
+.inactivas .list { margin-top: 8px; }
