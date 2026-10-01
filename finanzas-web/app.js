@@ -27,7 +27,8 @@
   const pad = (n) => String(n).padStart(2, '0');
   const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
-  const fmtMoney = (n) => money.format(Math.abs(Number(n) || 0));
+  // Si los saldos están ocultos, cualquier monto se muestra como $****.**
+  const fmtMoney = (n) => (state.ocultar ? '$****.**' : money.format(Math.abs(Number(n) || 0)));
   const fmtSigned = (n) => (Number(n) < 0 ? '−' : '') + fmtMoney(n);
 
   function hoy() {
@@ -109,7 +110,26 @@
     movs: new Map(),
     anMes: null,
     anCuenta: '',
+    ocultar: false,
   };
+  state.ocultar = local.get('ocultar_saldos') === '1';
+
+  const OJO_ABIERTO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const OJO_CERRADO = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+
+  function botonOjo() {
+    const oculto = state.ocultar;
+    return `<button type="button" class="icon-btn ojo" data-ojo aria-pressed="${oculto}"
+      aria-label="${oculto ? 'Mostrar saldos' : 'Ocultar saldos'}" title="${oculto ? 'Mostrar saldos' : 'Ocultar saldos'}">
+      ${oculto ? OJO_CERRADO : OJO_ABIERTO}</button>`;
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-ojo]')) return;
+    state.ocultar = !state.ocultar;
+    local.set('ocultar_saldos', state.ocultar ? '1' : '0');
+    refrescar();
+  });
 
   // ===================== Guía de instalación (iPhone) =====================
   function htmlGuiaInstalar() {
@@ -340,9 +360,12 @@
     v.innerHTML = `
       ${htmlGuiaInstalar()}
       ${alertas}
-      <header class="top">
-        <p class="top-sub">${esc(saludo())}</p>
-        <h1>${esc(nombreMes(mesHoy))}</h1>
+      <header class="top top-accion">
+        <div>
+          <p class="top-sub">${esc(saludo())}</p>
+          <h1>${esc(nombreMes(mesHoy))}</h1>
+        </div>
+        ${botonOjo()}
       </header>
 
       <div class="inicio-grid">
